@@ -1,0 +1,24 @@
+{
+  "name": "ebru",
+  "version": "0.1.0",
+  "description": "Paper marbling in the browser: float drops of ink, rake them with combs and swirls, and print the pattern, using exact area-preserving transforms.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "serve": "node scripts/serve.js"
+  },
+  "keywords": [
+    "marbling",
+    "ebru",
+    "creative-coding",
+    "generative-art",
+    "canvas"
+  ],
+  "license": "MIT",
+  "author": "Jiayi Fan",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fushanbobfan/ebru.git"
+  },
+  "private": false
+}
