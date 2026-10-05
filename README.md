@@ -63,13 +63,25 @@ palette and every stroke added by hand. *Save PNG* prints the tray at
 samples up to 2000 px and 4 above; on the CPU only the 1000 px print is
 supersampled.
 
+### History
+
+*Play* rebuilds the marbling from a clean bath: drops grow in with
+their area rising at a steady rate, and each stroke slides in from
+nothing to its full length, so the ink is seen being pulled into shape.
+Long histories are squeezed into about twenty seconds. The *Strokes
+shown* slider stops at any stroke, and *Save PNG* prints what is shown.
+A new stroke always goes on top of the whole marbling. With reduced
+motion turned on in the system, *Play* shows the finished strokes one at
+a time instead of animating them.
+
 ### Keyboard
 
 With the tray focused, arrow keys move a cursor (`Shift` for bigger
 steps) and `Enter` uses the current tool there, stroking in the
 direction set by the *Keyboard stroke direction* slider. `1`–`5` pick a
 tool, `[` and `]` change the drop size, `,` and `.` turn the stroke
-direction, `C` picks the next ink, `Z` undoes and `Y` redoes.
+direction, `C` picks the next ink, `P` plays or pauses the replay, `Z` undoes and
+`Y` redoes.
 
 ## How it works
 
@@ -114,7 +126,8 @@ it, must agree with the reference maps on over 99% of samples.
 The tray is focusable and every tool works from the keyboard. Controls
 are native form elements with labels, the status line announces the
 number of drops and strokes, and the page follows the system light or
-dark scheme. Nothing moves on its own.
+dark scheme. Nothing moves unless *Play* is pressed, and the replay
+respects reduced motion.
 
 ## License
 
