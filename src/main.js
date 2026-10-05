@@ -3,6 +3,7 @@ import { compile, renderRows } from './render.js';
 import { PALETTES, PATTERNS, buildPattern } from './patterns.js';
 import { encodeState, decodeState } from './share.js';
 import { TOOLS, opFromDrag, swirlFromPath, opFromKey, clampToTray } from './tools.js';
+import { createGpuRenderer } from './gpu.js';
 
 const $ = (id) => document.getElementById(id);
 const tray = $('tray');
@@ -10,7 +11,7 @@ const overlay = $('overlay');
 const ctx = tray.getContext('2d');
 const octx = overlay.getContext('2d');
 
-const MAX_BACKING = 900;
+const MAX_BACKING = { cpu: 900, gpu: 2048 };
 const PREVIEW = 200;
 const FRAME_MS = 14;
 
@@ -22,6 +23,12 @@ let cursor = [TRAY / 2, TRAY / 2];
 let showCursor = false;
 let gesture = null;
 let job = null;
+
+// The graphics card draws the whole tray in a few milliseconds; the CPU
+// path stays as a fallback and for ?renderer=cpu.
+const forceCpu = new URLSearchParams(location.search).get('renderer') === 'cpu';
+const gpu = forceCpu ? null : createGpuRenderer();
+let useGpu = Boolean(gpu);
 
 const settings = () => ({
   size: Number($('size').value),
@@ -44,7 +51,7 @@ function rebuildBase() {
 
 function sizeCanvases() {
   const rect = tray.getBoundingClientRect();
-  const px = Math.max(1, Math.min(MAX_BACKING, Math.round(rect.width * (window.devicePixelRatio || 1))));
+  const px = Math.max(1, Math.min(MAX_BACKING[useGpu ? 'gpu' : 'cpu'], Math.round(rect.width * (window.devicePixelRatio || 1))));
   for (const c of [tray, overlay]) {
     if (c.width !== px) {
       c.width = px;
@@ -97,10 +104,36 @@ function startFull(ops) {
   current.raf = requestAnimationFrame(step);
 }
 
+// Draw on the graphics card; false if it is gone and the CPU must take over.
+function drawGpu(ops, final) {
+  if (!useGpu) return false;
+  if (gpu.isLost()) {
+    useGpu = false;
+    $('gpu').checked = false;
+    $('gpu').disabled = true;
+    $('gpu-note').textContent = 'The graphics card stopped responding, so the tray is drawn on the CPU.';
+    sizeCanvases();
+    return false;
+  }
+  if (job) {
+    cancelAnimationFrame(job.raf);
+    job = null;
+  }
+  const t0 = performance.now();
+  gpu.setOps(ops);
+  gpu.draw(tray.width, bath(), 2);
+  gpu.finish();
+  ctx.drawImage(gpu.canvas, 0, 0);
+  if (final) setStatus(performance.now() - t0);
+  return true;
+}
+
 function redraw() {
   const ops = allOps();
-  drawPreview(ops);
-  startFull(ops);
+  if (!drawGpu(ops, true)) {
+    drawPreview(ops);
+    startFull(ops);
+  }
   drawOverlay();
   syncUndo();
   saveHash();
@@ -110,7 +143,8 @@ function setStatus(ms) {
   const ops = allOps();
   const drops = ops.filter((o) => o.type === 'drop').length;
   const strokes = ops.length - drops;
-  const time = ms === undefined ? ' · drawing…' : ` · drawn in ${Math.round(ms)} ms`;
+  const where = useGpu ? ' on the graphics card' : '';
+  const time = ms === undefined ? ' · drawing…' : ` · drawn in ${Math.max(1, Math.round(ms))} ms${where}`;
   $('status').textContent = `${drops} drop${drops === 1 ? '' : 's'}, ${strokes} stroke${strokes === 1 ? '' : 's'}${time}`;
 }
 
@@ -232,11 +266,14 @@ function previewGesture() {
   requestAnimationFrame(() => {
     pending = false;
     if (!gesture) return;
-    if (job) {
-      cancelAnimationFrame(job.raf);
-      job = null;
+    const ops = gesture.op ? allOps().concat([gesture.op]) : allOps();
+    if (!drawGpu(ops, false)) {
+      if (job) {
+        cancelAnimationFrame(job.raf);
+        job = null;
+      }
+      drawPreview(ops);
     }
-    drawPreview(gesture.op ? allOps().concat([gesture.op]) : allOps());
     drawOverlay();
   });
 }
@@ -463,8 +500,12 @@ $('png').addEventListener('click', () => {
   printing = true;
   $('png').disabled = true;
   const size = Number($('print-size').value);
-  const ss = size <= 1000 ? 2 : 1;
   const ops = allOps();
+  if (useGpu && !gpu.isLost() && size <= gpu.maxSize) {
+    printGpu(ops, size);
+    return;
+  }
+  const ss = size <= 1000 ? 2 : 1;
   const code = compile(ops);
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -486,18 +527,49 @@ $('png').addEventListener('click', () => {
       return;
     }
     pctx.putImageData(img, 0, 0);
-    canvas.toBlob((blob) => {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `ebru-${state.pattern}-${state.seed}.png`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-      $('print-note').textContent = `Saved a ${size} × ${size} print.`;
-      printing = false;
-      $('png').disabled = false;
-    });
+    savePrint(canvas, size);
   };
   requestAnimationFrame(step);
+});
+
+function savePrint(canvas, size, after) {
+  canvas.toBlob((blob) => {
+    if (after) after();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ebru-${state.pattern}-${state.seed}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    $('print-note').textContent = `Saved a ${size} × ${size} print.`;
+    printing = false;
+    $('png').disabled = false;
+  });
+}
+
+// Print on the graphics card: 4 samples per pixel (16 up to 2000 px),
+// drawn in bands, then the display is restored.
+function printGpu(ops, size) {
+  $('print-note').textContent = 'Printing…';
+  requestAnimationFrame(() => {
+    gpu.setOps(ops);
+    gpu.draw(size, bath(), size <= 2000 ? 4 : 2, 256);
+    gpu.finish();
+    savePrint(gpu.canvas, size, redraw);
+  });
+}
+
+const gpuToggle = $('gpu');
+gpuToggle.checked = useGpu;
+gpuToggle.disabled = !gpu;
+if (!gpu) {
+  $('gpu-note').textContent = forceCpu
+    ? 'The page was opened with renderer=cpu, so the tray is drawn on the CPU a few rows at a time.'
+    : 'This browser has no WebGL2, so the tray is drawn on the CPU a few rows at a time.';
+}
+gpuToggle.addEventListener('change', () => {
+  useGpu = gpuToggle.checked && Boolean(gpu);
+  sizeCanvases();
+  redraw();
 });
 
 // ---- start -------------------------------------------------------------
