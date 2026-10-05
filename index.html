@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ebru</title>
+  <meta name="description" content="Paper marbling in the browser: float drops of ink, rake them with combs and swirls, and print the pattern." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23efe6d2'/%3E%3Ccircle cx='8' cy='8' r='6' fill='%231f3a68'/%3E%3Ccircle cx='8' cy='8' r='4' fill='%23b5302b'/%3E%3Ccircle cx='8' cy='8' r='2' fill='%23e0a526'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Ebru</h1>
+    <p class="subtitle">Paper marbling on a virtual bath. Float drops of ink, pull combs and styluses through them, swirl them, and save the print. Every stroke moves the ink exactly the way an incompressible film would, so no colour ever gains or loses area.</p>
+  </header>
+
+  <main>
+    <section class="stage" aria-label="Marbling tray">
+      <div class="tray-wrap">
+        <canvas id="tray" role="img" tabindex="0" aria-label="Marbling tray" aria-describedby="status"></canvas>
+        <canvas id="overlay" aria-hidden="true"></canvas>
+      </div>
+      <div class="stage-bar">
+        <p id="status" class="status" aria-live="polite"></p>
+        <div class="buttons">
+          <button id="undo" type="button" disabled>Undo</button>
+          <button id="redo" type="button" disabled>Redo</button>
+        </div>
+      </div>
+      <p id="hint" class="hint"></p>
+      <p class="hint">Keyboard: with the tray focused, arrow keys move the cursor (<kbd>Shift</kbd> for bigger steps), <kbd>Enter</kbd> uses the current tool there, <kbd>1</kbd>–<kbd>5</kbd> pick a tool, <kbd>[</kbd> and <kbd>]</kbd> change the size, <kbd>,</kbd> and <kbd>.</kbd> turn the stroke direction, <kbd>C</kbd> picks the next ink, <kbd>Z</kbd> undoes and <kbd>Y</kbd> redoes.</p>
+    </section>
+
+    <section class="controls" aria-label="Controls">
+      <fieldset>
+        <legend>Tool</legend>
+        <div class="tools" role="radiogroup" aria-label="Tool">
+          <label><input type="radio" name="tool" value="drop" checked /> Drop</label>
+          <label><input type="radio" name="tool" value="stylus" /> Stylus</label>
+          <label><input type="radio" name="tool" value="comb" /> Comb</label>
+          <label><input type="radio" name="tool" value="swirl" /> Swirl</label>
+          <label><input type="radio" name="tool" value="wave" /> Wave</label>
+        </div>
+        <p id="tool-note" class="note"></p>
+        <div class="slider" id="size-row">
+          <label for="size">Drop size</label>
+          <input id="size" type="range" min="5" max="200" step="1" value="50" />
+          <output for="size" id="size-out"></output>
+        </div>
+        <div class="slider" id="sharp-row">
+          <label for="sharp">Reach of a tine</label>
+          <input id="sharp" type="range" min="2" max="80" step="1" value="14" />
+          <output for="sharp" id="sharp-out"></output>
+        </div>
+        <div class="slider" id="spacing-row">
+          <label for="spacing">Comb spacing</label>
+          <input id="spacing" type="range" min="15" max="250" step="1" value="80" />
+          <output for="spacing" id="spacing-out"></output>
+        </div>
+        <div class="slider" id="amp-row">
+          <label for="amp">Wave height</label>
+          <input id="amp" type="range" min="2" max="150" step="1" value="35" />
+          <output for="amp" id="amp-out"></output>
+        </div>
+        <div class="slider" id="dir-row">
+          <label for="dir">Keyboard stroke direction</label>
+          <input id="dir" type="range" min="0" max="345" step="15" value="90" />
+          <output for="dir" id="dir-out"></output>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Ink</legend>
+        <div id="swatches" class="swatches" role="radiogroup" aria-label="Ink colour"></div>
+        <label class="row" for="custom">Mix your own
+          <input id="custom" type="color" value="#7a4b9c" />
+        </label>
+        <label class="row" for="palette">Palette
+          <select id="palette"></select>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Start from</legend>
+        <label class="row" for="pattern">Pattern
+          <select id="pattern"></select>
+        </label>
+        <div class="seed-row">
+          <label for="seed">Seed</label>
+          <input id="seed" type="number" min="0" max="999999" step="1" />
+          <button id="reseed" type="button">New seed</button>
+        </div>
+        <p id="pattern-note" class="note"></p>
+        <div class="buttons spaced">
+          <button id="restart" type="button">Start over</button>
+          <button id="blank" type="button">Clean bath</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Print</legend>
+        <label class="row" for="print-size">PNG size
+          <select id="print-size">
+            <option value="1000">1000 × 1000</option>
+            <option value="2000" selected>2000 × 2000</option>
+            <option value="3000">3000 × 3000</option>
+          </select>
+        </label>
+        <div class="buttons spaced">
+          <button id="png" type="button">Save PNG</button>
+          <button id="share" type="button">Copy link</button>
+        </div>
+        <p id="print-note" class="note" aria-live="polite"></p>
+      </fieldset>
+    </section>
+  </main>
+
+  <footer>
+    <p>Drops and tines follow Aubrey Jaffer's mathematical marbling: a drop of radius r at C moves older ink at P to C + (P − C)·√(1 + r²/|P − C|²), and a tine slides ink along its stroke by an amount that dies off with distance across it. Swirls turn each circle around a centre by an arc that fades the same way, and waves bend the bath sideways; both keep area. Each picture is drawn by running the inverse of every stroke backwards from each pixel. Source on <a href="https://github.com/fushanbobfan/ebru">GitHub</a>.</p>
+  </footer>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
