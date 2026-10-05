@@ -28,7 +28,7 @@
         </div>
       </div>
       <p id="hint" class="hint"></p>
-      <p class="hint">Keyboard: with the tray focused, arrow keys move the cursor (<kbd>Shift</kbd> for bigger steps), <kbd>Enter</kbd> uses the current tool there, <kbd>1</kbd>–<kbd>5</kbd> pick a tool, <kbd>[</kbd> and <kbd>]</kbd> change the size, <kbd>,</kbd> and <kbd>.</kbd> turn the stroke direction, <kbd>C</kbd> picks the next ink, <kbd>Z</kbd> undoes and <kbd>Y</kbd> redoes.</p>
+      <p class="hint">Keyboard: with the tray focused, arrow keys move the cursor (<kbd>Shift</kbd> for bigger steps), <kbd>Enter</kbd> uses the current tool there, <kbd>1</kbd>–<kbd>5</kbd> pick a tool, <kbd>[</kbd> and <kbd>]</kbd> change the size, <kbd>,</kbd> and <kbd>.</kbd> turn the stroke direction, <kbd>C</kbd> picks the next ink, <kbd>P</kbd> plays or pauses the replay, <kbd>Z</kbd> undoes and <kbd>Y</kbd> redoes.</p>
     </section>
 
     <section class="controls" aria-label="Controls">
@@ -95,6 +95,20 @@
           <button id="restart" type="button">Start over</button>
           <button id="blank" type="button">Clean bath</button>
         </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>History</legend>
+        <div class="slider">
+          <label for="step">Strokes shown</label>
+          <input id="step" type="range" min="0" max="0" step="1" value="0" />
+          <output for="step" id="step-out"></output>
+        </div>
+        <div class="buttons spaced">
+          <button id="play" type="button" aria-pressed="false">Play</button>
+          <button id="latest" type="button">Back to the end</button>
+        </div>
+        <p class="note">Play rebuilds the marbling from a clean bath, one drop and one stroke at a time. Drag the slider to stop at any stroke; a new stroke always goes on top of the whole marbling.</p>
       </fieldset>
 
       <fieldset>

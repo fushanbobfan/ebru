@@ -4,6 +4,7 @@ import { PALETTES, PATTERNS, buildPattern } from './patterns.js';
 import { encodeState, decodeState } from './share.js';
 import { TOOLS, opFromDrag, swirlFromPath, opFromKey, clampToTray } from './tools.js';
 import { createGpuRenderer } from './gpu.js';
+import { timeline, frameAt } from './replay.js';
 
 const $ = (id) => document.getElementById(id);
 const tray = $('tray');
@@ -41,6 +42,12 @@ const settings = () => ({
 
 const tool = () => document.querySelector('input[name="tool"]:checked').value;
 const allOps = () => base.concat(state.added);
+
+// Number of strokes shown while looking back through the history, or
+// null for the whole marbling.
+let shown = null;
+let playback = null;
+const visibleOps = () => (shown === null ? allOps() : allOps().slice(0, shown));
 const bath = () => PALETTES[state.palette].bath;
 
 function rebuildBase() {
@@ -129,13 +136,14 @@ function drawGpu(ops, final) {
 }
 
 function redraw() {
-  const ops = allOps();
+  const ops = visibleOps();
   if (!drawGpu(ops, true)) {
     drawPreview(ops);
     startFull(ops);
   }
   drawOverlay();
   syncUndo();
+  syncHistory();
   saveHash();
 }
 
@@ -145,8 +153,99 @@ function setStatus(ms) {
   const strokes = ops.length - drops;
   const where = useGpu ? ' on the graphics card' : '';
   const time = ms === undefined ? ' · drawing…' : ` · drawn in ${Math.max(1, Math.round(ms))} ms${where}`;
-  $('status').textContent = `${drops} drop${drops === 1 ? '' : 's'}, ${strokes} stroke${strokes === 1 ? '' : 's'}${time}`;
+  const back = shown === null ? '' : ` · showing the first ${shown}`;
+  $('status').textContent = `${drops} drop${drops === 1 ? '' : 's'}, ${strokes} stroke${strokes === 1 ? '' : 's'}${back}${time}`;
 }
+
+// ---- history -----------------------------------------------------------
+
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+function syncHistory() {
+  const n = allOps().length;
+  const k = shown === null ? n : shown;
+  $('step').max = String(n);
+  $('step').value = String(k);
+  $('step-out').textContent = `${k} of ${n}`;
+  $('latest').disabled = shown === null && !playback;
+  $('play').textContent = playback ? 'Pause' : 'Play';
+  $('play').setAttribute('aria-pressed', String(Boolean(playback)));
+  $('play').disabled = n === 0;
+}
+
+function showStep(k) {
+  stopPlayback();
+  const n = allOps().length;
+  shown = k >= n ? null : Math.max(0, k);
+  redraw();
+}
+
+function backToLatest() {
+  stopPlayback();
+  if (shown === null) return;
+  shown = null;
+  redraw();
+}
+
+function stopPlayback() {
+  if (!playback) return;
+  cancelAnimationFrame(playback.raf);
+  clearTimeout(playback.timer);
+  playback = null;
+  syncHistory();
+}
+
+// Replay the marbling from a clean bath. Strokes slide in smoothly; with
+// reduced motion the finished strokes appear one at a time instead.
+function play() {
+  if (playback) {
+    const k = playback.count;
+    stopPlayback();
+    showStep(k);
+    return;
+  }
+  const ops = allOps();
+  if (!ops.length) return;
+  if (reduceMotion.matches) {
+    playback = { count: 0, raf: 0, timer: 0 };
+    const tick = () => {
+      if (!playback) return;
+      playback.count += 1;
+      shown = playback.count >= ops.length ? null : playback.count;
+      const done = shown === null;
+      if (done) playback = null;
+      redraw();
+      if (!done) playback.timer = setTimeout(tick, 400);
+    };
+    tick();
+    return;
+  }
+  const line = timeline(ops);
+  const t0 = performance.now();
+  playback = { count: 0, raf: 0, timer: 0 };
+  syncHistory();
+  const frame = () => {
+    if (!playback) return;
+    const seconds = (performance.now() - t0) / 1000;
+    if (seconds >= line.total) {
+      playback = null;
+      shown = null;
+      redraw();
+      return;
+    }
+    const ops2 = frameAt(ops, line, seconds);
+    playback.count = ops2.length;
+    if (!drawGpu(ops2, false)) drawPreview(ops2);
+    $('step').value = String(ops2.length);
+    $('step-out').textContent = `${ops2.length} of ${ops.length}`;
+    playback.raf = requestAnimationFrame(frame);
+  };
+  playback.raf = requestAnimationFrame(frame);
+}
+
+$('step').addEventListener('input', (e) => showStep(Number(e.target.value)));
+$('play').addEventListener('click', play);
+$('latest').addEventListener('click', backToLatest);
 
 // ---- overlay -----------------------------------------------------------
 
@@ -222,6 +321,9 @@ function drawOverlay() {
 
 function addOp(op) {
   if (!op) return;
+  // a new stroke goes on top of the whole marbling, not the replayed part
+  stopPlayback();
+  shown = null;
   state.added.push(op);
   redo = [];
   redraw();
@@ -229,12 +331,16 @@ function addOp(op) {
 
 function undo() {
   if (!state.added.length) return;
+  stopPlayback();
+  shown = null;
   redo.push(state.added.pop());
   redraw();
 }
 
 function redoOp() {
   if (!redo.length) return;
+  stopPlayback();
+  shown = null;
   state.added.push(redo.pop());
   redraw();
 }
@@ -287,6 +393,7 @@ tray.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
   tray.setPointerCapture(e.pointerId);
   const p = trayPoint(e);
+  backToLatest();
   gesture = { tool: tool(), start: p, end: p, path: [p], op: null };
   showCursor = false;
   previewGesture();
@@ -340,6 +447,8 @@ tray.addEventListener('keydown', (e) => {
     nudge($('size'), e.key === ']' ? 5 : -5);
   } else if (e.key === ',' || e.key === '.') {
     nudge($('dir'), e.key === '.' ? 15 : -15, true);
+  } else if (e.key === 'p' || e.key === 'P') {
+    play();
   } else if (e.key === 'c' || e.key === 'C') {
     const inks = PALETTES[state.palette].inks;
     setInk(inks[(inks.indexOf(ink) + 1) % inks.length]);
@@ -453,6 +562,8 @@ function syncPattern() {
 }
 
 function startOver() {
+  stopPlayback();
+  shown = null;
   state.added = [];
   redo = [];
   rebuildBase();
@@ -500,7 +611,7 @@ $('png').addEventListener('click', () => {
   printing = true;
   $('png').disabled = true;
   const size = Number($('print-size').value);
-  const ops = allOps();
+  const ops = visibleOps();
   if (useGpu && !gpu.isLost() && size <= gpu.maxSize) {
     printGpu(ops, size);
     return;
@@ -577,6 +688,8 @@ gpuToggle.addEventListener('change', () => {
 window.addEventListener('hashchange', () => {
   const next = decodeState(location.hash);
   if (encodeState(next) === encodeState(state)) return;
+  stopPlayback();
+  shown = null;
   Object.assign(state, next);
   redo = [];
   buildSwatches();
