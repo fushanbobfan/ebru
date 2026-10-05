@@ -59,7 +59,9 @@ direction and the length of one wave; the slider sets its height.
 
 The share link (*Copy link*) holds the starting pattern, its seed, the
 palette and every stroke added by hand. *Save PNG* prints the tray at
-1000, 2000 or 3000 pixels; the smallest size is supersampled.
+1000 to 4000 pixels. On the graphics card each print pixel averages 16
+samples up to 2000 px and 4 above; on the CPU only the 1000 px print is
+supersampled.
 
 ### Keyboard
 
@@ -93,9 +95,19 @@ inverses from the newest stroke to the oldest; the first drop that
 covers the traced point gives the pixel its colour, and a point that
 falls through every drop shows the bath.
 
+Where WebGL2 is available the same walk runs in a fragment shader. The
+strokes are packed into a float texture, three texels per stroke
+(`src/pack.js`), and the shader reads them with `texelFetch`, so the
+whole tray is redrawn at every pointer move, with every stroke in it. On
+the CPU the tray is drawn a few rows per frame after a quick
+low-resolution preview. Open the page with `?renderer=cpu`, or untick
+*Draw with the graphics card*, to use the CPU path.
+
 The tests check that every map undoes exactly, that its Jacobian
 determinant is 1 across the tray, and that each drop's share of the
-rendered tray still matches πr² after rakes, swirls and waves.
+rendered tray still matches πr² after rakes, swirls and waves. A
+float32 walk over the packed texture, written the way the shader reads
+it, must agree with the reference maps on over 99% of samples.
 
 ## Accessibility
 
